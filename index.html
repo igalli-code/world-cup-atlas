@@ -105,6 +105,7 @@
   .cre{aspect-ratio:1;border-radius:16px;background:#0c1426;border:1px solid var(--line);display:flex;
        flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:6px;cursor:pointer}
   .cre.locked{opacity:.4;filter:grayscale(1)}
+  .cre.current{border-color:var(--gold,#f5c451);box-shadow:0 0 0 1px var(--gold,#f5c451),0 0 14px #f5c45155}
   .cre svg,.cre .medal{width:46px;height:46px}
   .cre small{font-size:9.5px;color:var(--mut);margin-top:2px;line-height:1.1}
   .medal{border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;
@@ -150,7 +151,7 @@
   <div class="prog" id="prog">0 / 48</div>
   <button class="btn" id="liveBtn" title="World Cup">🏆</button>
   <button class="btn" id="quizBtn" title="Quiz">🎯</button>
-  <button class="btn" id="stableBtn" title="My Stable">🦄</button>
+  <button class="btn" id="pantheonBtn" title="Pantheon — legendary creatures">🐉</button>
   <button class="btn" id="backupBtn">⬇︎</button>
 </div>
 <div class="findwrap"><div class="find" id="findBar">Loading the world…</div><button class="btn" id="skipBtn" title="Skip — try a different country (comes back later)" style="margin-left:8px;pointer-events:auto">⏭</button></div>
@@ -172,7 +173,7 @@
   <div class="ttl">🌍 Marina’s World Cup Atlas</div>
   <div class="fact" style="margin-top:10px">Find the 48 World Cup countries on the globe — there are no markers, so you have to hunt for them! Spin, zoom, and tap inside the right country.</div>
   <div class="fact" style="margin-top:8px">Every country you pin shows fun facts and brings you closer to unlocking <b>legendary creatures</b> that live on your map — your first one is just 4 away! 🦄🐉</div>
-  <div class="fact" style="margin-top:8px">🏆 follow the real World Cup · 🎯 play quizzes · 🦄 see your creatures</div>
+  <div class="fact" style="margin-top:8px">🏆 follow the real World Cup · 🎯 play quizzes · 🐉 the Pantheon of creatures · tap your companion (bottom-left) for its Stable</div>
   <div class="row"><button class="btn gold" id="introGo" style="flex:1">Let’s go!</button></div>
 </div></div>
 
@@ -213,12 +214,20 @@
   <div class="row"><button class="btn gold" id="pDone" style="flex:1">Done</button></div>
 </div></div>
 
-<!-- STABLE -->
+<!-- STABLE (your companion's forms) -->
 <div class="modal" id="stableM"><div class="sheet">
-  <div class="ttl">🦄 My Stable <span style="font-size:13px;color:var(--mut)" id="stableCount"></span></div>
-  <div class="meta">Collect legendary creatures from around the world — they appear on your globe where their legend is from.</div>
+  <div class="ttl">🐴 My Stable <span style="font-size:13px;color:var(--mut)" id="stableCount"></span></div>
+  <div class="meta">Your companion grows as you explore the world. Here are all the forms it has become so far — keep pinning countries to evolve it.</div>
   <div class="stablegrid" id="stableGrid"></div>
   <div class="row"><button class="btn" id="stableClose" style="flex:1">Close</button></div>
+</div></div>
+
+<!-- PANTHEON (legendary creatures of the world) -->
+<div class="modal" id="pantheonM"><div class="sheet">
+  <div class="ttl">🐉 Pantheon <span style="font-size:13px;color:var(--mut)" id="pantheonCount"></span></div>
+  <div class="meta">Collect legendary creatures from around the world — they appear on your globe where their legend is from.</div>
+  <div class="stablegrid" id="pantheonGrid"></div>
+  <div class="row"><button class="btn" id="pantheonClose" style="flex:1">Close</button></div>
 </div></div>
 
 <!-- CREATURE CARD -->
@@ -688,7 +697,7 @@ function checkUnlocks(){
     if(state.menagerie[c.id]) return;
     if(c.rare && n<48) return;
     if(n>=c.need){ state.menagerie[c.id]={unlockedAt:Date.now()}; save();
-      setTimeout(()=>{ toast('🎉 New creature: '+c.name+'! (tap Stable)','ok'); },1300); }
+      setTimeout(()=>{ toast('🎉 New creature: '+c.name+'! (tap 🐉 Pantheon)','ok'); },1300); }
   });
 }
 function renderDock(){
@@ -716,10 +725,26 @@ document.getElementById('pDone').onclick=()=>{
 };
 
 /* ---------------- STABLE + CREATURE CARD ---------------- */
+// STABLE = your companion's evolution forms collected to date.
 function openStable(){
   const grid=document.getElementById('stableGrid'); grid.innerHTML='';
+  const n=collectedCount(); const cur=companionNow();
+  const got=COMPANION.filter(s=>n>=s.need).length;
+  document.getElementById('stableCount').textContent=got+' / '+COMPANION.length;
+  COMPANION.forEach(s=>{
+    const unlocked=n>=s.need; const isNow=s.stage===cur.stage;
+    const d=document.createElement('div'); d.className='cre'+(unlocked?'':' locked')+(isNow?' current':'');
+    const nm=unlocked?(s.name+(isNow?' ⭐':'')):('Evolves at '+s.need);
+    d.innerHTML=markerArt(s.art)+'<small>'+nm+'</small>';
+    grid.appendChild(d);
+  });
+  document.getElementById('stableM').classList.add('on');
+}
+// PANTHEON = legendary creatures collected from around the world.
+function openPantheon(){
+  const grid=document.getElementById('pantheonGrid'); grid.innerHTML='';
   const got=Object.keys(state.menagerie).length;
-  document.getElementById('stableCount').textContent=got+' / '+MENAGERIE.length;
+  document.getElementById('pantheonCount').textContent=got+' / '+MENAGERIE.length;
   MENAGERIE.forEach(c=>{
     const unlocked=!!state.menagerie[c.id];
     const d=document.createElement('div'); d.className='cre'+(unlocked?'':' locked');
@@ -728,7 +753,7 @@ function openStable(){
     if(unlocked) d.onclick=()=>openCreature(c.id);
     grid.appendChild(d);
   });
-  document.getElementById('stableM').classList.add('on');
+  document.getElementById('pantheonM').classList.add('on');
 }
 let creId=null;
 function openCreature(id){
@@ -738,7 +763,7 @@ function openCreature(id){
   document.getElementById('creOrigin').textContent='Legend of '+c.origin;
   document.getElementById('creCard').textContent=c.card;
   document.getElementById('creGiven').value=(state.menagerie[id]&&state.menagerie[id].givenName)||'';
-  document.getElementById('stableM').classList.remove('on');
+  document.getElementById('pantheonM').classList.remove('on');
   document.getElementById('creM').classList.add('on');
 }
 document.getElementById('creSave').onclick=()=>{
@@ -766,7 +791,7 @@ document.getElementById('backupBtn').onclick=()=>{
 function toast(msg,kind){ const t=document.getElementById('toast'); t.className='toast show '+(kind||''); t.textContent=msg;
   clearTimeout(t._h); t._h=setTimeout(()=>t.className='toast '+(kind||''),2600); }
 function updateProg(){ document.getElementById('prog').textContent=collectedCount()+' / 48'; }
-document.getElementById('stableBtn').onclick=openStable;
+document.getElementById('pantheonBtn').onclick=openPantheon;
 
 /* ---------------- QUIZ (Recall) ---------------- */
 function qShuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
@@ -1066,6 +1091,7 @@ document.getElementById('liveClose').onclick=closeLive;
 document.getElementById('liveRefresh').onclick=()=>fetchLive({manual:true});
 document.getElementById('liveTabs').addEventListener('click',e=>{ const t=e.target.closest('.tab2'); if(!t)return; liveTab=t.dataset.t; renderLive(); });
 document.getElementById('stableClose').onclick=()=>document.getElementById('stableM').classList.remove('on');
+document.getElementById('pantheonClose').onclick=()=>document.getElementById('pantheonM').classList.remove('on');
 document.getElementById('dock').onclick=openStable;
 document.getElementById('zin').onclick=()=>{const p=world.pointOfView();world.pointOfView({altitude:Math.max(0.5,p.altitude*0.7)},400);world.controls().autoRotate=false;};
 document.getElementById('zout').onclick=()=>{const p=world.pointOfView();world.pointOfView({altitude:Math.min(4,p.altitude*1.4)},400);};
