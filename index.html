@@ -1056,6 +1056,36 @@ function renderBracket(){
   const fix=liveFix(); const ko=fix.filter(m=>!m.g && m.num!=null);
   if(!ko.length) return '<div class="meta">The knockout bracket fills in once the group stage finishes.</div>';
   const map={}; ko.forEach(m=>map[m.num]=m);
+  /* --- LIVE PROJECTION: resolve placeholder slots (1A/2B, 3X/Y, W##/L##) from the live standings, so the bracket fills in and refreshes as group results land. Projected picks are flagged until the source is final. --- */
+  const std=computeStandings();
+  const allGroupsDone=GROUPS.every(g=>std[g].every(r=>r.P>=3));
+  const grpDone=g=>std[g]&&std[g].every(r=>r.P>=3);
+  const orderedThirds=GROUPS.map(g=>({g,r:std[g][2]})).filter(x=>x.r&&std[x.g].some(r=>r.P>0))
+    .sort((x,y)=>y.r.Pts-x.r.Pts||(y.r.GF-y.r.GA)-(x.r.GF-x.r.GA)||y.r.GF-x.r.GF).slice(0,8);
+  const thirdAssign={}, usedThird=new Set();
+  ko.slice().sort((a,b)=>a.num-b.num).forEach(m=>{ [['1',m.t1],['2',m.t2]].forEach(([side,tok])=>{
+    if(!/^3/.test(tok))return; const allowed=tok.slice(1).split('/');
+    const pick=orderedThirds.find(t=>allowed.includes(t.g)&&!usedThird.has(t.g));
+    if(pick){ usedThird.add(pick.g); thirdAssign[m.num+'|'+side]=pick.r.c.id; } }); });
+  const outMemo={};
+  function resolveOutcome(num,wantLoser){ const key=num+'|'+(wantLoser?'L':'W'); if(key in outMemo)return outMemo[key];
+    outMemo[key]=null; const m=map[num]; if(!m||!m.s||m.s[0]===m.s[1])return outMemo[key]=null;
+    const a=teamOf(m.t1,m.i1,num,'1'), b=teamOf(m.t2,m.i2,num,'2'), winA=m.s[0]>m.s[1];
+    const pick=winA?(wantLoser?b:a):(wantLoser?a:b);
+    return outMemo[key]=(pick?{id:pick.id,proj:pick.proj}:null); }
+  function teamOf(tok,directId,num,side){ if(directId)return {id:directId,proj:false}; let mt;
+    if(mt=/^([12])([A-L])$/.exec(tok)){ const r=std[mt[2]]&&std[mt[2]][+mt[1]-1]; return (r&&r.P>0)?{id:r.c.id,proj:!grpDone(mt[2])}:null; }
+    if(/^3/.test(tok)){ const id=thirdAssign[num+'|'+side]; return id?{id,proj:!allGroupsDone}:null; }
+    if(mt=/^W(\d+)$/.exec(tok))return resolveOutcome(+mt[1],false);
+    if(mt=/^L(\d+)$/.exec(tok))return resolveOutcome(+mt[1],true);
+    return null; }
+  function tokLabel(t){ let m;
+    if(m=/^([12])([A-L])$/.exec(t))return 'Group '+m[2]+' '+(m[1]==='1'?'winner':'runner-up');
+    if(/^3/.test(t))return 'Best 3rd · '+t.slice(1);
+    if(m=/^W(\d+)$/.exec(t))return 'Winner of M'+m[1];
+    if(m=/^L(\d+)$/.exec(t))return 'Loser of M'+m[1];
+    return t||'TBD'; }
+  const PROJ='<span style="color:#7e8ec6;font-size:.8em" title="projected from current standings — exact once the groups finish"> ▵</span>';
   const rounds=['Round of 32','Round of 16','Quarter-final','Semi-final','Final'];
   const colOf={}; rounds.forEach((r,i)=>colOf[r]=i);
   const src=l=>{ const mt=/^W(\d+)$/.exec(l||''); return mt?+mt[1]:null; };
@@ -1075,16 +1105,18 @@ function renderBracket(){
     const px=col*COL+PADX, pyc=cy(pos[m.num]);
     [src(m.t1),src(m.t2)].forEach(cn=>{ if(cn==null||!(cn in pos))return; const cc=colOf[map[cn].r]; const cx=cc*COL+PADX+CW, cyc=cy(pos[cn]), mx=(cx+px)/2;
       lines+='<path d="M'+cx+' '+cyc+' H'+mx+' V'+pyc+' H'+px+'" fill="none" stroke="#3a4f86" stroke-width="2"/>'; }); });
-  function trow(id,raw,sc,win){ const nm=(id&&byId[id])?(byId[id].flag+' '+byId[id].name):('<span class="mut">'+(raw||'TBD')+'</span>'); return '<div class="brow'+(win?' bwin':'')+'"><span class="bnm">'+nm+'</span><span class="bsc">'+(sc==null?'':sc)+'</span></div>'; }
-  let cards='';
+  function trow(res,raw,sc,win){ const nm=(res&&res.id&&byId[res.id])?(byId[res.id].flag+' '+byId[res.id].name+(res.proj?PROJ:'')):('<span class="mut">'+tokLabel(raw)+'</span>'); return '<div class="brow'+(win?' bwin':'')+'"><span class="bnm">'+nm+'</span><span class="bsc">'+(sc==null?'':sc)+'</span></div>'; }
+  let cards='', anyProj=false;
   ko.filter(m=>m.r!=='Match for third place' && (m.num in pos)).forEach(m=>{ const col=colOf[m.r], x=col*COL+PADX, y=cy(pos[m.num])-CH/2;
+    const A=teamOf(m.t1,m.i1,m.num,'1'), B=teamOf(m.t2,m.i2,m.num,'2'); if((A&&A.proj)||(B&&B.proj))anyProj=true;
     let w1=false,w2=false; if(m.s){ if(m.s[0]>m.s[1])w1=true; else if(m.s[1]>m.s[0])w2=true; }
-    cards+='<div class="bcard" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px">'+trow(m.i1,m.t1,m.s?m.s[0]:null,w1)+trow(m.i2,m.t2,m.s?m.s[1]:null,w2)+'</div>'; });
+    cards+='<div class="bcard" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px">'+trow(A,m.t1,m.s?m.s[0]:null,w1)+trow(B,m.t2,m.s?m.s[1]:null,w2)+'</div>'; });
   let heads=''; rounds.forEach((r,i)=>{ heads+='<div class="bhead" style="left:'+(i*COL+PADX)+'px;width:'+CW+'px">'+r.replace('Round of 32','R32').replace('Round of 16','R16').replace('Quarter-final','QF').replace('Semi-final','SF')+'</div>'; });
   const third=ko.find(m=>m.r==='Match for third place'); let thirdHtml='';
   if(third){ const w1=!!(third.s&&third.s[0]>third.s[1]), w2=!!(third.s&&third.s[1]>third.s[0]);
-    thirdHtml='<div class="lbl" style="margin-top:12px">3rd-place match</div><div class="bcard" style="position:relative;width:'+CW+'px;margin-top:2px">'+trow(third.i1,third.t1,third.s?third.s[0]:null,w1)+trow(third.i2,third.t2,third.s?third.s[1]:null,w2)+'</div>'; }
-  return '<div class="meta">Swipe the bracket → (and down). Winners flow toward the Final.</div><div class="bwrap"><div class="binner" style="width:'+(W+12)+'px;height:'+(H+8)+'px">'+heads+'<svg class="bsvg" width="'+(W+12)+'" height="'+(H+8)+'">'+lines+'</svg>'+cards+'</div></div>'+thirdHtml;
+    thirdHtml='<div class="lbl" style="margin-top:12px">3rd-place match</div><div class="bcard" style="position:relative;width:'+CW+'px;margin-top:2px">'+trow(teamOf(third.t1,third.i1,third.num,'1'),third.t1,third.s?third.s[0]:null,w1)+trow(teamOf(third.t2,third.i2,third.num,'2'),third.t2,third.s?third.s[1]:null,w2)+'</div>'; }
+  const note=anyProj?' <span style="color:#7e8ec6">▵ = projected from current standings; exact once the groups finish.</span>':'';
+  return '<div class="meta">Swipe the bracket → (and down). Winners flow toward the Final.'+note+'</div><div class="bwrap"><div class="binner" style="width:'+(W+12)+'px;height:'+(H+8)+'px">'+heads+'<svg class="bsvg" width="'+(W+12)+'" height="'+(H+8)+'">'+lines+'</svg>'+cards+'</div></div>'+thirdHtml;
 }
 function wireLive(){
   document.querySelectorAll('#liveBody .pbtn').forEach(b=>b.onclick=()=>{ state.predictions=state.predictions||{}; state.predictions[b.dataset.k]=b.dataset.i; save(); renderLive(); toast('Prediction saved!','ok'); });
